@@ -45,13 +45,13 @@ git checkout $(git branch | slz)
 You can install `slz` directly via pip:
 
 ```bash
-pip install slz-cli
+pip install .
 ```
 
 Or for a single-user installation:
 
 ```bash
-pip install --user slz-cli
+pip install --user .
 ```
 
 ### 2. Add to your Zsh configuration
