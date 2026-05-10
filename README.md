@@ -1,5 +1,7 @@
 # SLZ Translator 🥋
 
+![SLZ Demo](slz_demo.gif)
+
 [![CI](https://github.com/stannirk/slz/actions/workflows/ci.yml/badge.svg)](https://github.com/stannirk/slz/actions/workflows/ci.yml)
 [![PyPI version](https://badge.fury.io/py/slz.svg)](https://badge.fury.io/py/slz)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
