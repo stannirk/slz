@@ -27,7 +27,7 @@ class TestChaosAndEdgeCases(unittest.TestCase):
         
         # Test if main() handles the curses.error during 'Terminal too small' draw
         try:
-            slz.main(stdscr)
+            slz.main(stdscr, initial_lines=["prevent thread start"])
         except curses.error:
             self.fail("main() raised curses.error; it should handle it internally when terminal is too small.")
         except Exception as e:

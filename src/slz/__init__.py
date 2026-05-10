@@ -41,31 +41,62 @@ def read_stdin(q: queue.Queue, max_lines: int) -> None:
     finally:
         q.put(None) # Sentinel for EOF
 
-def parse_user_input(user_input: str) -> Tuple[List[str], Optional[str]]:
-    """Parses user input into tokens and identifies the custom separator if any."""
+def parse_user_input(user_input: str) -> Tuple[List[str], Optional[str], Optional[int]]:
+    """Parses user input into tokens, identifies custom separator, and head count."""
     try:
         parts = shlex.split(user_input)
     except ValueError:
         parts = user_input.split()
     
     sep = None
+    head_skip = None
     clean_parts = []
     for part in parts:
         if part.startswith('sep:'):
             val = part[4:]
             if val: sep = val
+        elif part.startswith('head:'):
+            try:
+                head_skip = int(part[5:])
+            except (ValueError, IndexError):
+                pass
         else:
             clean_parts.append(part)
-    return clean_parts, sep
+    return clean_parts, sep, head_skip
+
+def detect_col_before_filter_warning(user_input: str) -> Optional[str]:
+    """
+    Detects if a text filter token appears after a `col:` token.
+    If so, returns a warning message.
+    """
+    parts, _, _ = parse_user_input(user_input)
+    col_seen = False
+    for part in parts:
+        is_col = part.startswith('col:')
+        is_regex = part.startswith('r:')
+        is_sep = part.startswith('sep:')
+        is_head = part.startswith('head:')
+        is_text = not is_col and not is_regex and not is_sep and not is_head
+
+        if is_col:
+            col_seen = True
+        
+        if col_seen and is_text:
+            return "⚠ Text after col: acts on extracted data. Reorder for global filtering."
+            
+    return None
 
 def generate_command(user_input: str) -> str:
     """Translates user input into a bash pipe sequence, preserving order."""
     if not user_input.strip():
         return ""
     
-    parts, sep = parse_user_input(user_input)
+    parts, sep, head_skip = parse_user_input(user_input)
     
     commands = []
+    if head_skip and head_skip > 0:
+        commands.append(f"sed '1,{head_skip}d'")
+
     fs = f"-F'{sep}' " if sep else ""
     
     for part in parts:
@@ -114,8 +145,12 @@ def filter_lines(lines: List[str], user_input: str) -> List[str]:
     if cache_key in _filter_cache:
         return _filter_cache[cache_key]
     
-    parts, sep = parse_user_input(user_input)
-    filtered = lines
+    parts, sep, head_skip = parse_user_input(user_input)
+    
+    if head_skip and head_skip > 0:
+        filtered = lines[head_skip:]
+    else:
+        filtered = lines
     
     for part in parts:
         if part.startswith('col:'):
@@ -167,20 +202,18 @@ def filter_lines(lines: List[str], user_input: str) -> List[str]:
 def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], List[str]]:
     # Setup curses with compatibility checks
     curses.curs_set(1)
-    stdscr.timeout(100) # Non-blocking input (100ms)
-    stdscr.keypad(True) # Handle arrow keys and special keys
+    stdscr.timeout(100)
+    stdscr.keypad(True)
     
-    # Initialize colors only if supported
     has_colors = curses.has_colors()
     if has_colors:
         curses.use_default_colors()
-        curses.init_pair(1, curses.COLOR_CYAN, -1)  # Header
+        curses.init_pair(1, curses.COLOR_CYAN, -1)   # Header
         curses.init_pair(2, curses.COLOR_YELLOW, -1) # Generated command
         curses.init_pair(3, curses.COLOR_GREEN, -1)  # Filter text
         curses.init_pair(4, curses.COLOR_MAGENTA, -1) # Highlighted column
         curses.init_pair(5, curses.COLOR_WHITE, curses.COLOR_BLUE) # Selected line
     
-    # Setup background stdin reading
     MAX_LINES = 10000
     input_lines: List[str] = initial_lines if initial_lines is not None else []
     input_queue: queue.Queue = queue.Queue()
@@ -196,16 +229,14 @@ def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], L
 
     current_input = ""
     scroll_offset = 0
-    selected_lines = set()
+    selected_indices = set() # Changed to indices
     header_line = None
     
     while True:
-        # Drain the input queue
         while not input_queue.empty():
             line = input_queue.get()
             if line is not None:
-                # Simple header detection heuristic
-                if header_line is None and len(input_lines) == 0:
+                if header_line is None and not input_lines:
                     if line.isupper() or (len(line.split()) > 3 and all(t[0].isupper() for t in line.split() if t.isalpha())):
                         header_line = line
                     else:
@@ -218,30 +249,28 @@ def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], L
         stdscr.clear()
         height, width = stdscr.getmaxyx()
         
-        # Ensure we have a minimum screen size
         if height < 5 or width < 20:
-            try:
-                stdscr.addstr(0, 0, "Terminal too small")
-            except curses.error:
-                pass
+            try: stdscr.addstr(0, 0, "Terminal too small")
+            except curses.error: pass
             stdscr.refresh()
-            ch = stdscr.getch()
-            if ch == 27: break
+            if stdscr.getch() == 27: break
             continue
 
-        # Draw header
+        # Draw main header
         header_attr = curses.color_pair(1) | curses.A_REVERSE if has_colors else curses.A_REVERSE
         stdscr.attron(header_attr)
         try:
-            status = "Streaming..." if is_streaming else "Ready"
-            sel_text = f" [{len(selected_lines)} selected]" if selected_lines else ""
-            header_text = f" SLZ Translator | {status}{sel_text} | col:N, Tab:Sel, Ctrl+Y:Copy | ESC: Cancel ".ljust(width)
-            stdscr.addstr(0, 0, header_text)
-        except curses.error:
-            pass
+            status = "STRE" if is_streaming else "IDLE"
+            sel_text = f" [SEL:{len(selected_indices)}]" if selected_indices else ""
+            header_text = f" SLZ | {status}{sel_text} | Tab:Toggle, Ctrl+Y:Copy, Enter:Apply ".ljust(width)
+            stdscr.addstr(0, 0, header_text[:width])
+        except curses.error: pass
         stdscr.attroff(header_attr)
         
-        # Pinned Header row
+        # Determine layout based on warning
+        warning_message = detect_col_before_filter_warning(current_input)
+        
+        # Draw pinned header
         y_offset = 1
         if header_line:
             try:
@@ -249,110 +278,150 @@ def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], L
                 stdscr.addstr(1, 0, header_line[:width-1].ljust(width-1))
                 stdscr.attroff(curses.A_BOLD | curses.A_UNDERLINE)
                 y_offset = 2
-            except curses.error:
-                pass
+            except curses.error: pass
 
-        # Draw preview
-        preview_lines = filter_lines(input_lines, current_input)
-        num_preview = len(preview_lines)
-        display_height = height - y_offset - 3
+        # Filter and track indices
+        parts, sep, head_skip = parse_user_input(current_input)
         
-        # Clamp scroll offset
+        if head_skip and head_skip > 0:
+            indexed_lines = list(enumerate(input_lines))[head_skip:]
+        else:
+            indexed_lines = list(enumerate(input_lines))
+        
+        # Apply filters to indexed_lines
+        filtered_indexed = indexed_lines
+        for part in parts:
+            if part.startswith('col:'):
+                # We don't filter indices here, just content for the next grep-like step
+                # But col: extraction actually changes the content.
+                # For preview, we'll just keep the original content but highlight it.
+                pass
+            elif part.startswith('r:'):
+                pattern = part[2:]
+                if pattern:
+                    try:
+                        regex = re.compile(pattern, re.IGNORECASE)
+                        filtered_indexed = [item for item in filtered_indexed if regex.search(item[1])]
+                    except re.error: pass
+            else:
+                filtered_indexed = [item for item in filtered_indexed if part.lower() in item[1].lower()]
+
+        num_preview = len(filtered_indexed)
+        footer_height = 3 if warning_message else 2
+        display_height = height - y_offset - footer_height
+        
         scroll_offset = max(0, min(scroll_offset, num_preview - display_height))
         
-        # Determine highlighted column
+        # Highlight logic
         highlight_col = -1
-        parts, sep = parse_user_input(current_input)
         for part in parts:
             if part.startswith('col:'):
                 try:
                     val = part[4:]
                     if '-' not in val and ',' not in val:
                         highlight_col = int(val) - 1
-                except ValueError:
-                    pass
+                except ValueError: pass
 
-        visible_lines = preview_lines[scroll_offset : scroll_offset + display_height]
-        for i, line in enumerate(visible_lines):
+        visible_items = filtered_indexed[scroll_offset : scroll_offset + display_height]
+        for i, (orig_idx, line) in enumerate(visible_items):
             try:
                 draw_y = i + y_offset
-                is_selected = line in selected_lines
-                attr = curses.color_pair(5) if is_selected and has_colors else curses.A_NORMAL
+                is_selected = orig_idx in selected_indices
+                line_attr = curses.color_pair(5) if is_selected and has_colors else curses.A_NORMAL
                 
+                # Draw base line
+                stdscr.addstr(draw_y, 0, line[:width-1].ljust(width-1), line_attr)
+                
+                # Overlay highlight
                 if highlight_col >= 0:
-                    tokens = line.split(sep) if sep else line.split()
-                    curr_x = 0
-                    for t_idx, token in enumerate(tokens):
-                        if t_idx == highlight_col:
+                    import re
+                    matches = list(re.finditer(r'\S+', line)) if not sep else []
+                    if sep:
+                        # Find start/end for sep
+                        start = 0
+                        s_parts = line.split(sep)
+                        if highlight_col < len(s_parts):
+                            for j in range(highlight_col):
+                                start += len(s_parts[j]) + len(sep)
+                            end = start + len(s_parts[highlight_col])
+                            token = s_parts[highlight_col]
+                            if start < width - 1:
+                                stdscr.attron(curses.color_pair(4) | curses.A_BOLD)
+                                stdscr.addstr(draw_y, start, token[:width-1-start])
+                                stdscr.attroff(curses.color_pair(4) | curses.A_BOLD)
+                    elif 0 <= highlight_col < len(matches):
+                        m = matches[highlight_col]
+                        start, end = m.start(), m.end()
+                        if start < width - 1:
                             stdscr.attron(curses.color_pair(4) | curses.A_BOLD)
-                        stdscr.addstr(draw_y, curr_x, token)
-                        if t_idx == highlight_col:
+                            stdscr.addstr(draw_y, start, line[start:min(end, width-1)])
                             stdscr.attroff(curses.color_pair(4) | curses.A_BOLD)
-                        curr_x += len(token) + 1
-                        if curr_x >= width - 1: break
-                else:
-                    stdscr.addstr(draw_y, 0, line[:width-1], attr)
-            except curses.error:
-                pass
+            except curses.error: pass
         
         # Draw footer
-        footer_y = height - 2
+        footer_y = height - footer_height
+        if warning_message:
+            try:
+                warning_attr = curses.color_pair(2) | curses.A_BOLD if has_colors else curses.A_BOLD
+                stdscr.attron(warning_attr)
+                stdscr.addstr(footer_y, 0, warning_message[:width-1])
+                stdscr.attroff(warning_attr)
+                footer_y += 1
+            except curses.error:
+                pass
+
         cmd = generate_command(current_input)
-        
         cmd_attr = curses.color_pair(2) | curses.A_BOLD if has_colors else curses.A_BOLD
         try:
-            stdscr.addstr(footer_y, 0, f"Generated [{scroll_offset + 1}-{min(scroll_offset + display_height, num_preview)}/{num_preview}]: ")
-            stdscr.attron(cmd_attr)
-            stdscr.addstr(cmd[:width-25])
-            stdscr.attroff(cmd_attr)
+            footer_text = f"Cmd [{scroll_offset + 1}-{min(scroll_offset + display_height, num_preview)}/{num_preview}]: "
+            stdscr.addstr(footer_y, 0, footer_text)
+            stdscr.addstr(footer_y, len(footer_text), cmd[:width-len(footer_text)], cmd_attr)
             
             stdscr.addstr(footer_y + 1, 0, "Filter: ")
             filter_attr = curses.color_pair(3) if has_colors else curses.A_NORMAL
             stdscr.attron(filter_attr)
-            stdscr.addstr(current_input[:width-9])
+            display_filter = f"{current_input}_"
+            stdscr.addstr(footer_y + 1, 8, display_filter[:width-9])
             stdscr.attroff(filter_attr)
-        except curses.error:
-            pass
+        except curses.error: pass
         
         stdscr.refresh()
         
-        # Handle input
-        try:
-            ch = stdscr.getch()
-        except KeyboardInterrupt:
-            return None, input_lines
+        try: ch = stdscr.getch()
+        except KeyboardInterrupt: return None, input_lines
 
-        if ch == -1: # Timeout
-            continue
+        if ch == -1: continue
         elif ch == curses.KEY_RESIZE:
             curses.update_lines_cols()
             continue
-        elif ch in (10, 13, curses.KEY_ENTER): # Enter
-            if selected_lines:
-                return current_input, list(selected_lines)
-            return current_input, input_lines
-        elif ch == 27: # ESC
-            return None, input_lines
-        elif ch == 9: # TAB - Multi-select
-            if visible_lines:
-                # Toggle selection for the line at the top of visible area for now, 
-                # or we could implement a cursor. Let's toggle the first visible one.
-                line_to_toggle = visible_lines[0]
-                if line_to_toggle in selected_lines:
-                    selected_lines.remove(line_to_toggle)
-                else:
-                    selected_lines.add(line_to_toggle)
-        elif ch == 25: # Ctrl+Y - Copy to clipboard
-            if cmd:
-                copy_to_clipboard(f"| {cmd}")
-        elif ch == curses.KEY_UP:
-            scroll_offset -= 1
-        elif ch == curses.KEY_DOWN:
-            scroll_offset += 1
-        elif ch == curses.KEY_PPAGE:
-            scroll_offset -= display_height
-        elif ch == curses.KEY_NPAGE:
-            scroll_offset += display_height
+        elif ch in (10, 13, curses.KEY_ENTER):
+            # Combine header with output
+            final_output = []
+            if header_line:
+                final_output.append(header_line)
+            
+            if selected_indices:
+                # Output only selected lines (ordered by original appearance)
+                for idx in sorted(selected_indices):
+                    final_output.append(input_lines[idx])
+            else:
+                # Output all current filtered lines
+                for idx, content in filtered_indexed:
+                    final_output.append(content)
+            
+            return current_input, final_output
+        elif ch == 27: return None, input_lines
+        elif ch == 9: # Tab
+            if visible_items:
+                orig_idx, _ = visible_items[0]
+                if orig_idx in selected_indices: selected_indices.remove(orig_idx)
+                else: selected_indices.add(orig_idx)
+        elif ch == 25: # Ctrl+Y
+            if cmd: copy_to_clipboard(f"| {cmd}")
+        elif ch == curses.KEY_UP: scroll_offset -= 1
+        elif ch == curses.KEY_DOWN: scroll_offset += 1
+        elif ch == curses.KEY_PPAGE: scroll_offset -= display_height
+        elif ch == curses.KEY_NPAGE: scroll_offset += display_height
         elif ch in (curses.KEY_BACKSPACE, 127, 8):
             current_input = current_input[:-1]
             scroll_offset = 0
@@ -367,7 +436,7 @@ def generate_explanation(user_input: str) -> str:
     if not user_input.strip():
         return "No filters applied."
     
-    parts, sep = parse_user_input(user_input)
+    parts, sep, head_skip = parse_user_input(user_input)
     explanations = []
     
     for part in parts:
