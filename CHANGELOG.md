@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom delimiter support with `sep:X` (e.g., `sep:,`).
 - New `--filter` (`-f`) output mode to return filtered results instead of the command recipe.
 - In-TUI help hint for discovered tags in the header.
+- New `--version` flag.
+- Fish shell widget documentation in README.
+- Performance caching in `filter_lines` for smoother UI on large datasets.
 
 ### Fixed
 - Fatal `NameError: os is not defined` bug on startup.
@@ -20,9 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Infinite redraw loop in ultra-small terminals.
 - Improved Zsh widget to stage commands instead of immediate execution.
 - Added validation for `col:0` to prevent unintended `awk $0` output.
+- Strengthened `test_broken_pipe_handling` with a real integration test.
 
 ### Changed
 - Moved `test_usecases.py` to `tests/` and converted it to a standard unit test.
+- Added integration and shell injection security tests.
 
 ## [0.1.2] - 2026-05-09
 

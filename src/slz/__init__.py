@@ -101,10 +101,18 @@ def generate_command(user_input: str) -> str:
     
     return " | ".join(commands)
 
+_filter_cache = {}
+
 def filter_lines(lines: List[str], user_input: str) -> List[str]:
-    """Filters lines based on current user input for preview."""
+    """Filters lines based on current user input for preview. Uses caching for performance."""
     if not user_input.strip():
         return lines
+    
+    # Simple cache key: (id(lines), user_input)
+    # id(lines) is safe because input_lines is only appended to, never replaced in the TUI loop.
+    cache_key = (id(lines), len(lines), user_input)
+    if cache_key in _filter_cache:
+        return _filter_cache[cache_key]
     
     parts, sep = parse_user_input(user_input)
     filtered = lines
@@ -147,6 +155,13 @@ def filter_lines(lines: List[str], user_input: str) -> List[str]:
         else:
             filtered = [line for line in filtered if part.lower() in line.lower()]
             
+    _filter_cache[cache_key] = filtered
+    # Optional: Keep cache size reasonable
+    if len(_filter_cache) > 100:
+        # Simple LRU-ish: clear everything if too big
+        _filter_cache.clear()
+        _filter_cache[cache_key] = filtered
+
     return filtered
 
 def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], List[str]]:
@@ -291,6 +306,7 @@ def run() -> None:
     
     parser = argparse.ArgumentParser(description="SLZ: Interactive Pipe Translator")
     parser.add_argument("-f", "--filter", action="store_true", help="Output filtered results instead of the command recipe")
+    parser.add_argument("--version", action="version", version="%(prog)s 0.2.0")
     args, unknown = parser.parse_known_args()
 
     if not sys.stdin.isatty():

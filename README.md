@@ -71,6 +71,19 @@ zle -N slz-widget
 bindkey '^P' slz-widget
 ```
 
+### 3. Add to your Fish configuration
+Add the following to your `~/.config/fish/config.fish` to bind SLZ to `Ctrl+P`:
+
+```fish
+# SLZ Widget (Fish shell)
+function slz_widget
+    if test -n (commandline)
+        commandline -a " | slz"
+    end
+end
+bind \cp slz_widget
+```
+
 ## Usage
 1. Type a command like `ps aux`.
 2. Press `Ctrl+P`.

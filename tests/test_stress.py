@@ -72,13 +72,14 @@ class TestStressAndHardening(unittest.TestCase):
             self.assertTrue(stdscr.getch.called)
 
     def test_broken_pipe_handling(self):
-        """Simulate a SIGPIPE/BrokenPipeError."""
-        # This is hard to unit test directly without running the process,
-        # but we can ensure the logic exists to catch it in the __main__ block
-        # by verifying the structure of slz.py.
-        with open(slz.__file__, 'r') as f:
-            content = f.read()
-            self.assertIn('curses.wrapper', content)
+        """Exercise the exception path in run() directly."""
+        with patch("slz.curses.wrapper", side_effect=BrokenPipeError):
+            with patch("sys.stdin.isatty", return_value=False):
+                with patch("sys.stdout.isatty", return_value=False):
+                    with self.assertRaises(SystemExit) as cm:
+                        slz.run()
+                    # BrokenPipeError should exit with non-zero
+                    self.assertEqual(cm.exception.code, 1)
 
 if __name__ == "__main__":
     unittest.main()
