@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-05-09
 
 ### Added
-- Initial release of Pipe-Fu.
+- Initial release of SLZ.
 - Interactive TUI for filtering piped input.
 - `col:N` tag for smart column extraction with `awk`.
 - Asynchronous streaming input for responsiveness.
