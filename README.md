@@ -1,0 +1,91 @@
+# SLZ Translator 🥋
+
+[![CI](https://github.com/user/slz/actions/workflows/ci.yml/badge.svg)](https://github.com/user/slz/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+The interactive command-line tool that translates your visual filtering into powerful `awk` and `grep` commands.
+
+## Why SLZ?
+Experienced developers often find themselves writing repetitive `grep | awk | sed` chains just to extract a single piece of information from a messy command output. `slz` eliminates the mental overhead of remembering exact flags and column numbers by providing an interactive TUI to do it for you.
+
+**Read our [Project Philosophy (MISSION.md)](./MISSION.md) and see more [Usage Examples (EXAMPLES.md)](./EXAMPLES.md).**
+
+## Quick Start Examples
+Try these common patterns to see SLZ in action:
+
+```bash
+# Find and kill a process by name
+kill -9 $(ps aux | slz)
+# Interactive filter: "chrome col:2"
+
+# Get the ID of a specific Docker container
+docker inspect $(docker ps | slz)
+# Interactive filter: "nginx col:1"
+
+# Extract timestamps for specific log errors
+cat server.log | slz
+# Interactive filter: "timeout 504 col:2"
+
+# Checkout a branch interactively
+git checkout $(git branch | slz)
+# Interactive filter: "feature/api col:1"
+```
+
+## Features
+- **Interactive Filtering**: Type as you go to see live results.
+- **Smart Column Extraction**: Use `col:N` to instantly extract the Nth column of your data.
+- **Command Generation**: Generates the exact `grep` and `awk` commands for you to copy or re-run.
+- **Virtual Scrolling**: Navigate through thousands of lines of output using arrow keys.
+- **Streaming Input**: UI stays responsive while reading from slow piped commands.
+- **Zero Dependencies**: Pure Python using the standard `curses` library.
+
+## Installation
+
+### 1. Install the package
+You can install `slz` directly via pip:
+
+```bash
+pip install .
+```
+
+Or for a single-user installation:
+
+```bash
+pip install --user .
+```
+
+### 2. Add to your Zsh configuration
+Add the following to your `~/.zshrc` to bind SLZ to `Ctrl+P`:
+
+```zsh
+# SLZ Widget
+slz-widget() {
+  if [[ -n "$LBUFFER" ]]; then
+    LBUFFER="$LBUFFER | slz"
+    zle accept-line
+  fi
+}
+zle -N slz-widget
+bindkey '^P' slz-widget
+```
+
+## Usage
+1. Type a command like `ps aux`.
+2. Press `Ctrl+P`.
+3. In the interface, type `chrome` to filter for Chrome processes.
+4. Type ` col:2` to extract the PID column.
+5. Use **Arrow Keys** or **Page Up/Down** to scroll the results.
+6. Hit Enter. The tool will exit and display:
+   `# Suggested Pipe: | grep -i 'chrome' | awk '{print $2}'`
+
+## Compatibility
+- **Linux/macOS**: Supported natively (requires Python 3.6+).
+- **Windows**: Supported via WSL or by installing the `windows-curses` package (`pip install windows-curses`) in PowerShell/CMD.
+- **Terminals**: Works in all standard terminal emulators (iTerm2, Terminal.app, xterm, Windows Terminal, GNOME Terminal). 
+  *Note: May not work inside IDE-integrated terminals (like VS Code's debug console) if they do not provide full TTY support.*
+
+## Development & Testing
+To run the full test suite:
+```bash
+python3 -m unittest discover tests
+```
