@@ -6,9 +6,11 @@ if sys.version_info < (3, 6):
     sys.exit("Error: SLZ requires Python 3.6 or higher.")
 
 import curses
+import os
 import re
 import locale
 import platform
+import argparse
 
 # Ensure Unicode support for different locales
 try:
@@ -19,7 +21,7 @@ except locale.Error:
 import shlex
 import threading
 import queue
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Tuple
 
 def read_stdin(q: queue.Queue, max_lines: int) -> None:
     """Background thread function to read stdin into a queue."""
@@ -39,24 +41,59 @@ def read_stdin(q: queue.Queue, max_lines: int) -> None:
     finally:
         q.put(None) # Sentinel for EOF
 
-def generate_command(user_input: str) -> str:
-    """Translates user input into a bash pipe sequence, preserving order."""
-    if not user_input.strip():
-        return ""
-    
+def parse_user_input(user_input: str) -> Tuple[List[str], Optional[str]]:
+    """Parses user input into tokens and identifies the custom separator if any."""
     try:
         parts = shlex.split(user_input)
     except ValueError:
         parts = user_input.split()
     
+    sep = None
+    clean_parts = []
+    for part in parts:
+        if part.startswith('sep:'):
+            val = part[4:]
+            if val: sep = val
+        else:
+            clean_parts.append(part)
+    return clean_parts, sep
+
+def generate_command(user_input: str) -> str:
+    """Translates user input into a bash pipe sequence, preserving order."""
+    if not user_input.strip():
+        return ""
+    
+    parts, sep = parse_user_input(user_input)
+    
     commands = []
+    fs = f"-F'{sep}' " if sep else ""
+    
     for part in parts:
         if part.startswith('col:'):
+            col_spec = part[4:]
+            if not col_spec: continue
+            
             try:
-                col_num = int(part.split(':')[1])
-                commands.append(f"awk '{{print ${col_num}}}'")
-            except (IndexError, ValueError):
+                if ',' in col_spec:
+                    cols = [f"${int(c)}" for c in col_spec.split(',') if int(c) > 0]
+                    if cols:
+                        commands.append(f"awk {fs}'{{print {', '.join(cols)}}}'")
+                elif '-' in col_spec:
+                    start, end = map(int, col_spec.split('-'))
+                    if start > 0 and end >= start:
+                        cols = [f"${i}" for i in range(start, end + 1)]
+                        commands.append(f"awk {fs}'{{print {', '.join(cols)}}}'")
+                else:
+                    col_num = int(col_spec)
+                    if col_num > 0:
+                        commands.append(f"awk {fs}'{{print ${col_num}}}'")
+            except (ValueError, IndexError):
                 pass
+        elif part.startswith('r:'):
+            pattern = part[2:]
+            if pattern:
+                safe_pattern = pattern.replace("'", "'\\''")
+                commands.append(f"grep -E -i '{safe_pattern}'")
         else:
             # Escape single quotes for shell safety: ' becomes '\''
             safe_part = part.replace("'", "'\\''")
@@ -69,31 +106,50 @@ def filter_lines(lines: List[str], user_input: str) -> List[str]:
     if not user_input.strip():
         return lines
     
-    try:
-        parts = shlex.split(user_input)
-    except ValueError:
-        parts = user_input.split()
-    
+    parts, sep = parse_user_input(user_input)
     filtered = lines
     
     for part in parts:
         if part.startswith('col:'):
+            col_spec = part[4:]
+            if not col_spec: continue
+            
             try:
-                col_idx = int(part.split(':')[1]) - 1
                 new_filtered = []
+                target_cols = []
+                if ',' in col_spec:
+                    target_cols = [int(c) - 1 for c in col_spec.split(',') if int(c) > 0]
+                elif '-' in col_spec:
+                    start, end = map(int, col_spec.split('-'))
+                    if start > 0 and end >= start:
+                        target_cols = list(range(start - 1, end))
+                else:
+                    target_cols = [int(col_spec) - 1] if int(col_spec) > 0 else []
+
+                if not target_cols: continue
+
                 for line in filtered:
-                    cols = line.split()
-                    if 0 <= col_idx < len(cols):
-                        new_filtered.append(cols[col_idx])
+                    cols = line.split(sep) if sep else line.split()
+                    extracted = [cols[i] for i in target_cols if 0 <= i < len(cols)]
+                    if extracted:
+                        new_filtered.append(" ".join(extracted))
                 filtered = new_filtered
             except (IndexError, ValueError):
                 pass
+        elif part.startswith('r:'):
+            pattern = part[2:]
+            if pattern:
+                try:
+                    regex = re.compile(pattern, re.IGNORECASE)
+                    filtered = [line for line in filtered if regex.search(line)]
+                except re.error:
+                    pass
         else:
             filtered = [line for line in filtered if part.lower() in line.lower()]
             
     return filtered
 
-def main(stdscr: Any) -> Optional[str]:
+def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], List[str]]:
     # Setup curses with compatibility checks
     curses.curs_set(1)
     stdscr.timeout(100) # Non-blocking input (100ms)
@@ -109,16 +165,17 @@ def main(stdscr: Any) -> Optional[str]:
     
     # Setup background stdin reading
     MAX_LINES = 10000
-    input_lines: List[str] = []
+    input_lines: List[str] = initial_lines if initial_lines is not None else []
     input_queue: queue.Queue = queue.Queue()
     is_streaming = False
 
-    if sys.stdin.isatty():
-        input_lines = ["No input detected. Pipe something into slz!", "Example: ps aux | slz"]
-    else:
-        is_streaming = True
-        t = threading.Thread(target=read_stdin, args=(input_queue, MAX_LINES), daemon=True)
-        t.start()
+    if not input_lines:
+        if sys.stdin.isatty():
+            input_lines = ["No input detected. Pipe something into slz!", "Example: ps aux | slz"]
+        else:
+            is_streaming = True
+            t = threading.Thread(target=read_stdin, args=(input_queue, MAX_LINES), daemon=True)
+            t.start()
 
     current_input = ""
     scroll_offset = 0
@@ -142,6 +199,7 @@ def main(stdscr: Any) -> Optional[str]:
             except curses.error:
                 pass
             stdscr.refresh()
+            # Wait for resize or ESC instead of tight loop
             ch = stdscr.getch()
             if ch == 27: break
             continue
@@ -151,7 +209,7 @@ def main(stdscr: Any) -> Optional[str]:
         stdscr.attron(header_attr)
         try:
             status = "Streaming..." if is_streaming else "Ready"
-            header_text = f" SLZ Translator | {status} | ESC: Cancel ".ljust(width)
+            header_text = f" SLZ Translator | {status} | col:N, r:regex, sep:X | ESC: Cancel ".ljust(width)
             stdscr.addstr(0, 0, header_text)
         except curses.error:
             pass
@@ -199,7 +257,7 @@ def main(stdscr: Any) -> Optional[str]:
         try:
             ch = stdscr.getch()
         except KeyboardInterrupt:
-            return None
+            return None, input_lines
 
         if ch == -1: # Timeout, no key pressed
             continue
@@ -207,9 +265,9 @@ def main(stdscr: Any) -> Optional[str]:
             curses.update_lines_cols()
             continue
         elif ch in (10, 13, curses.KEY_ENTER): # Enter
-            break
+            return current_input, input_lines
         elif ch == 27: # ESC
-            return None
+            return None, input_lines
         elif ch == curses.KEY_UP:
             scroll_offset -= 1
         elif ch == curses.KEY_DOWN:
@@ -225,33 +283,44 @@ def main(stdscr: Any) -> Optional[str]:
             current_input += chr(ch)
             scroll_offset = 0
 
-    return current_input
+    return None, input_lines
 
 def run() -> None:
     # Reduce ESC key delay in curses (default is often 1000ms)
     os.environ.setdefault('ESCDELAY', '25')
     
-    if not sys.stdin.isatty() or len(sys.argv) > 1:
+    parser = argparse.ArgumentParser(description="SLZ: Interactive Pipe Translator")
+    parser.add_argument("-f", "--filter", action="store_true", help="Output filtered results instead of the command recipe")
+    args, unknown = parser.parse_known_args()
+
+    if not sys.stdin.isatty():
         try:
-            final_input = curses.wrapper(main)
+            final_input, final_lines = curses.wrapper(main)
             if final_input is not None:
-                cmd = generate_command(final_input)
-                if cmd:
-                    # Smart Output: If stdout is a TTY, be pretty. If not, be silent/raw.
-                    if sys.stdout.isatty():
-                        print(f"\n# Suggested Pipe:\n| {cmd}")
-                    else:
-                        # Print only the command for easy capture: CMD=$(ps aux | slz)
-                        print(cmd)
+                if args.filter:
+                    results = filter_lines(final_lines, final_input)
+                    for line in results:
+                        print(line)
+                else:
+                    cmd = generate_command(final_input)
+                    if cmd:
+                        if sys.stdout.isatty():
+                            print(f"\n# Suggested Pipe:\n| {cmd}")
+                        else:
+                            print(cmd)
         except Exception as e:
-            # Fallback for systems where curses might fail
             if sys.stdout.isatty():
                 print(f"\nError: Terminal does not support TUI mode. ({str(e)})", file=sys.stderr)
             else:
                 sys.exit(1)
     else:
-        print("Usage: <command> | slz")
+        if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+            parser.print_help()
+        else:
+            print("Usage: <command> | slz")
         sys.exit(1)
+
+
 
 if __name__ == "__main__":
     run()

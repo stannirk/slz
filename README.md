@@ -14,27 +14,30 @@ Experienced developers often find themselves writing repetitive `grep | awk | se
 Try these common patterns to see SLZ in action:
 
 ```bash
-# Find and kill a process by name
-kill -9 $(ps aux | slz)
+# Find and kill a process by name (uses --filter to output values)
+kill -9 $(ps aux | slz -f)
 # Interactive filter: "chrome col:2"
 
 # Get the ID of a specific Docker container
-docker inspect $(docker ps | slz)
+docker inspect $(docker ps | slz -f)
 # Interactive filter: "nginx col:1"
 
 # Extract timestamps for specific log errors
-cat server.log | slz
+cat server.log | slz -f
 # Interactive filter: "timeout 504 col:2"
 
 # Checkout a branch interactively
-git checkout $(git branch | slz)
+git checkout $(git branch | slz -f)
 # Interactive filter: "feature/api col:1"
 ```
 
 ## Features
 - **Interactive Filtering**: Type as you go to see live results.
-- **Smart Column Extraction**: Use `col:N` to instantly extract the Nth column of your data.
+- **Smart Column Extraction**: Use `col:N` to extract the Nth column. Supports multiple columns (`col:1,3`) and ranges (`col:1-4`).
+- **Regex Support**: Use `r:pattern` for powerful regular expression filtering (case-insensitive).
+- **Custom Delimiters**: Use `sep:X` (e.g., `sep:,`) to handle CSV or other delimited data.
 - **Command Generation**: Generates the exact `grep` and `awk` commands for you to copy or re-run.
+- **Output Mode**: Use `--filter` (or `-f`) to output the filtered results directly instead of the command recipe.
 - **Virtual Scrolling**: Navigate through thousands of lines of output using arrow keys.
 - **Streaming Input**: UI stays responsive while reading from slow piped commands.
 - **Zero Dependencies**: Pure Python using the standard `curses` library.
@@ -55,14 +58,13 @@ pip install --user .
 ```
 
 ### 2. Add to your Zsh configuration
-Add the following to your `~/.zshrc` to bind SLZ to `Ctrl+P`:
+Add the following to your `~/.zshrc` to bind SLZ to `Ctrl+P`. This version stages the command in your buffer without executing it immediately, allowing you to review it first:
 
 ```zsh
-# SLZ Widget
+# SLZ Widget (Stages command in buffer)
 slz-widget() {
   if [[ -n "$LBUFFER" ]]; then
     LBUFFER="$LBUFFER | slz"
-    zle accept-line
   fi
 }
 zle -N slz-widget

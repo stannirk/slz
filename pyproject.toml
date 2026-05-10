@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "slz"
-version = "0.1.2"
+version = "0.2.0"
 description = "The interactive command-line tool that translates your visual filtering into powerful awk and grep commands."
 readme = "README.md"
 requires-python = ">=3.6"
