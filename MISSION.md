@@ -10,22 +10,22 @@ Most interactive filters are built for **Selection**. SLZ is built for **Transla
 **The Problem:** In tools like `fzf`, you can find the line you want, but you can't *extract* the value you need. You're forced into a trial-and-error loop:
 `ps aux | fzf | awk '{print $2}'` -> *Wrong column?* -> `Up-arrow` -> *Edit* -> `awk '{print $3}'` -> *Repeat.*
 
-**The Sluice Solution:** SLZ integrates the filter and the extractor into one step. By using the `col:N` tag, you see the extracted values in real-time. If you guessed the wrong column, you see it instantly in the preview and fix it before hitting Enter.
+**The SLZ Solution:** SLZ integrates the filter and the extractor into one step. By using the `col:N` tag, you see the extracted values in real-time. If you guessed the wrong column, you see it instantly in the preview and fix it before hitting Enter.
 
 ### 2. The "Awk Syntax Barrier"
 **The Problem:** `awk` is powerful, but its syntax is arcane. Beginners struggle with field variables (`$1`, `$2`), quoting hell (escaping single quotes inside shell scripts), and inconsistent versions across Linux and macOS.
 
-**The Sluice Solution:** SLZ acts as a **Syntax Buffer**. You type in a human-friendly way (`col:2`), and SLZ handles the "backslash madness" and POSIX-compliant formatting for you.
+**The SLZ Solution:** SLZ acts as a **Syntax Buffer**. You type in a human-friendly way (`col:2`), and SLZ handles the "backslash madness" and POSIX-compliant formatting for you.
 
 ### 3. The "Black Box" Automation Gap
 **The Problem:** Fuzzy finders are great for one-off manual tasks, but they are "black boxes." When you're done, you don't have a re-usable command you can put into a bash script or a `.zshrc` alias.
 
-**The Sluice Solution:** SLZ is a **Command Generator**. Its primary output is the actual `grep | awk` string. This allows you to experiment interactively and then copy-paste the perfect command directly into your automation scripts.
+**The SLZ Solution:** SLZ is a **Command Generator**. Its primary output is the actual `grep | awk` string. This allows you to experiment interactively and then copy-paste the perfect command directly into your automation scripts.
 
 ### 4. Literal Precision vs. Fuzzy Noise
 **The Problem:** Fuzzy matching can sometimes be *too* aggressive, returning "noisy" results that have the right letters but the wrong meaning.
 
-**The Sluice Solution:** SLZ uses **Literal Multi-Term Filtering**. If you type `ssh failed`, it behaves like `grep ssh | grep failed`. It's predictable, precise, and matches the mental model of most systems engineers.
+**The SLZ Solution:** SLZ uses **Literal Multi-Term Filtering**. If you type `ssh failed`, it behaves like `grep ssh | grep failed`. It's predictable, precise, and matches the mental model of most systems engineers.
 
 ---
 
@@ -50,3 +50,4 @@ SLZ is a surgical tool, not a Swiss Army knife. We believe that a CLI tool’s v
 *   **Transparent Output:** Our primary output will always be a human-readable shell command, not a proprietary format.
 
 By staying small, SLZ remains fast, learnable, and a perfect citizen of the Unix ecosystem.
+osystem.
