@@ -36,6 +36,7 @@ class TestIntegration(unittest.TestCase):
         )
         self.assertIn("0.2.0", result.stdout)
 
+    @unittest.skipUnless(sys.stdin.isatty(), "Requires a TTY")
     def test_no_input_usage(self):
         # Running slz without pipe and without args should show usage
         result = subprocess.run(
@@ -46,6 +47,18 @@ class TestIntegration(unittest.TestCase):
         )
         self.assertIn("Usage: <command> | slz", result.stdout)
         self.assertEqual(result.returncode, 1)
+
+    def test_no_input_usage_mocked(self):
+        """Test usage message using mocks to simulate TTY-less environment (like CI)."""
+        from unittest.mock import patch
+        with patch("sys.stdin.isatty", return_value=True):
+            with patch("sys.stdout", new=io.StringIO()) as mock_stdout:
+                with patch("sys.argv", ["slz"]):
+                    with self.assertRaises(SystemExit) as cm:
+                        import slz
+                        slz.run()
+                    self.assertEqual(cm.exception.code, 1)
+                    self.assertIn("Usage: <command> | slz", mock_stdout.getvalue())
 
 if __name__ == "__main__":
     unittest.main()
