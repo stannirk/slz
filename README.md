@@ -1,6 +1,8 @@
 # SLZ Translator 🥋
 
 [![CI](https://github.com/stannirk/slz/actions/workflows/ci.yml/badge.svg)](https://github.com/stannirk/slz/actions/workflows/ci.yml)
+[![PyPI version](https://badge.fury.io/py/slz.svg)](https://badge.fury.io/py/slz)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 The interactive command-line tool that translates your visual filtering into powerful `awk` and `grep` commands.

@@ -36,6 +36,25 @@ class TestIntegration(unittest.TestCase):
         )
         self.assertIn("0.2.0", result.stdout)
 
+    def test_filter_mode_e2e(self):
+        """End-to-end test of the filtering logic via a subprocess call."""
+        # We simulate the filter logic by calling a python snippet that uses slz's filter_lines
+        # This bypasses the TUI but exercises the actual filtering engine used by the CLI
+        cmd = [
+            sys.executable, "-c",
+            "import sys, os; "
+            "sys.path.insert(0, os.path.join(os.getcwd(), 'src')); "
+            "from slz import filter_lines; "
+            "print(filter_lines(['user 1234 chrome', 'root 1 init'], 'chrome col:2')[0])"
+        ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        self.assertEqual(result.stdout.strip(), "1234")
+
     @unittest.skipUnless(sys.stdin.isatty(), "Requires a TTY")
     def test_no_input_usage(self):
         # Running slz without pipe and without args should show usage

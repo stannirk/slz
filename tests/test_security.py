@@ -44,6 +44,25 @@ class TestSecurity(unittest.TestCase):
                 else:
                     self.fail(f"Generated command contains unsafe segment: {part}")
 
+    def test_explicit_shell_injection(self):
+        """Specifically check that dangerous sequences are not present unescaped or as standalone commands."""
+        adversarial = ["'; rm -rf ~", "$(whoami)", "`id`", "col:1; echo pwned"]
+        for inp in adversarial:
+            cmd = generate_command(inp)
+            # The danger is if these appear OUTSIDE of single quotes.
+            # Since slz wraps everything in '...', we check if the command 
+            # as a whole is safely constructed.
+            self.assertNotIn("; rm -rf", cmd.replace("';'", ""))
+            # Check that it's always wrapped in grep or awk
+            for part in cmd.split(" | "):
+                self.assertTrue(part.startswith("grep") or part.startswith("awk"), f"Unsafe command: {part}")
+                # Ensure it's single-quoted
+                self.assertTrue(" '" in part and part.endswith("'"), f"Unquoted part: {part}")
+            
+            # Specifically for $(whoami), it should be inside '...'
+            if "$(whoami)" in inp:
+                self.assertIn("'$(whoami)'", cmd)
+
             # 2. Specifically check that the shell-active characters from the input
             # never appear unquoted in the command.
             for char in [';', '`', '$', '(', ')', '&', '|', '<', '>']:

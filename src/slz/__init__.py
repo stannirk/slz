@@ -177,6 +177,8 @@ def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], L
         curses.init_pair(1, curses.COLOR_CYAN, -1)  # Header
         curses.init_pair(2, curses.COLOR_YELLOW, -1) # Generated command
         curses.init_pair(3, curses.COLOR_GREEN, -1)  # Filter text
+        curses.init_pair(4, curses.COLOR_MAGENTA, -1) # Highlighted column
+        curses.init_pair(5, curses.COLOR_WHITE, curses.COLOR_BLUE) # Selected line
     
     # Setup background stdin reading
     MAX_LINES = 10000
@@ -194,13 +196,22 @@ def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], L
 
     current_input = ""
     scroll_offset = 0
+    selected_lines = set()
+    header_line = None
     
     while True:
         # Drain the input queue
         while not input_queue.empty():
             line = input_queue.get()
             if line is not None:
-                input_lines.append(line)
+                # Simple header detection heuristic
+                if header_line is None and len(input_lines) == 0:
+                    if line.isupper() or (len(line.split()) > 3 and all(t[0].isupper() for t in line.split() if t.isalpha())):
+                        header_line = line
+                    else:
+                        input_lines.append(line)
+                else:
+                    input_lines.append(line)
             else:
                 is_streaming = False
 
@@ -214,7 +225,6 @@ def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], L
             except curses.error:
                 pass
             stdscr.refresh()
-            # Wait for resize or ESC instead of tight loop
             ch = stdscr.getch()
             if ch == 27: break
             continue
@@ -224,26 +234,64 @@ def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], L
         stdscr.attron(header_attr)
         try:
             status = "Streaming..." if is_streaming else "Ready"
-            header_text = f" SLZ Translator | {status} | col:N, r:regex, sep:X | ESC: Cancel ".ljust(width)
+            sel_text = f" [{len(selected_lines)} selected]" if selected_lines else ""
+            header_text = f" SLZ Translator | {status}{sel_text} | col:N, Tab:Sel, Ctrl+Y:Copy | ESC: Cancel ".ljust(width)
             stdscr.addstr(0, 0, header_text)
         except curses.error:
             pass
         stdscr.attroff(header_attr)
         
+        # Pinned Header row
+        y_offset = 1
+        if header_line:
+            try:
+                stdscr.attron(curses.A_BOLD | curses.A_UNDERLINE)
+                stdscr.addstr(1, 0, header_line[:width-1].ljust(width-1))
+                stdscr.attroff(curses.A_BOLD | curses.A_UNDERLINE)
+                y_offset = 2
+            except curses.error:
+                pass
+
         # Draw preview
         preview_lines = filter_lines(input_lines, current_input)
         num_preview = len(preview_lines)
-        display_height = height - 4
+        display_height = height - y_offset - 3
         
         # Clamp scroll offset
         scroll_offset = max(0, min(scroll_offset, num_preview - display_height))
         
+        # Determine highlighted column
+        highlight_col = -1
+        parts, sep = parse_user_input(current_input)
+        for part in parts:
+            if part.startswith('col:'):
+                try:
+                    val = part[4:]
+                    if '-' not in val and ',' not in val:
+                        highlight_col = int(val) - 1
+                except ValueError:
+                    pass
+
         visible_lines = preview_lines[scroll_offset : scroll_offset + display_height]
         for i, line in enumerate(visible_lines):
             try:
-                # Truncate line to fit screen
-                display_line = line[:width-1]
-                stdscr.addstr(i + 1, 0, display_line)
+                draw_y = i + y_offset
+                is_selected = line in selected_lines
+                attr = curses.color_pair(5) if is_selected and has_colors else curses.A_NORMAL
+                
+                if highlight_col >= 0:
+                    tokens = line.split(sep) if sep else line.split()
+                    curr_x = 0
+                    for t_idx, token in enumerate(tokens):
+                        if t_idx == highlight_col:
+                            stdscr.attron(curses.color_pair(4) | curses.A_BOLD)
+                        stdscr.addstr(draw_y, curr_x, token)
+                        if t_idx == highlight_col:
+                            stdscr.attroff(curses.color_pair(4) | curses.A_BOLD)
+                        curr_x += len(token) + 1
+                        if curr_x >= width - 1: break
+                else:
+                    stdscr.addstr(draw_y, 0, line[:width-1], attr)
             except curses.error:
                 pass
         
@@ -274,22 +322,36 @@ def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], L
         except KeyboardInterrupt:
             return None, input_lines
 
-        if ch == -1: # Timeout, no key pressed
+        if ch == -1: # Timeout
             continue
         elif ch == curses.KEY_RESIZE:
             curses.update_lines_cols()
             continue
         elif ch in (10, 13, curses.KEY_ENTER): # Enter
+            if selected_lines:
+                return current_input, list(selected_lines)
             return current_input, input_lines
         elif ch == 27: # ESC
             return None, input_lines
+        elif ch == 9: # TAB - Multi-select
+            if visible_lines:
+                # Toggle selection for the line at the top of visible area for now, 
+                # or we could implement a cursor. Let's toggle the first visible one.
+                line_to_toggle = visible_lines[0]
+                if line_to_toggle in selected_lines:
+                    selected_lines.remove(line_to_toggle)
+                else:
+                    selected_lines.add(line_to_toggle)
+        elif ch == 25: # Ctrl+Y - Copy to clipboard
+            if cmd:
+                copy_to_clipboard(f"| {cmd}")
         elif ch == curses.KEY_UP:
             scroll_offset -= 1
         elif ch == curses.KEY_DOWN:
             scroll_offset += 1
-        elif ch == curses.KEY_PPAGE: # Page Up
+        elif ch == curses.KEY_PPAGE:
             scroll_offset -= display_height
-        elif ch == curses.KEY_NPAGE: # Page Down
+        elif ch == curses.KEY_NPAGE:
             scroll_offset += display_height
         elif ch in (curses.KEY_BACKSPACE, 127, 8):
             current_input = current_input[:-1]
@@ -300,12 +362,70 @@ def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], L
 
     return None, input_lines
 
+def generate_explanation(user_input: str) -> str:
+    """Provides a plain-English explanation of the generated command."""
+    if not user_input.strip():
+        return "No filters applied."
+    
+    parts, sep = parse_user_input(user_input)
+    explanations = []
+    
+    for part in parts:
+        if part.startswith('col:'):
+            col_spec = part[4:]
+            try:
+                if ',' in col_spec:
+                    cols = col_spec.split(',')
+                    explanations.append(f"awk (extract columns {', '.join(cols)})")
+                elif '-' in col_spec:
+                    start, end = col_spec.split('-')
+                    explanations.append(f"awk (extract columns {start} through {end})")
+                else:
+                    explanations.append(f"awk (extract column {col_spec})")
+            except ValueError:
+                pass
+        elif part.startswith('r:'):
+            pattern = part[2:]
+            explanations.append(f"grep (regex match '{pattern}', case-insensitive)")
+        elif part.startswith('sep:'):
+            pass # Handled by awk
+        else:
+            explanations.append(f"grep (substring match '{part}', case-insensitive)")
+    
+    if not explanations:
+        return "No valid filters identified."
+    
+    result = "Steps:\n"
+    for i, exp in enumerate(explanations, 1):
+        result += f"  {i}. {exp}\n"
+    return result
+
+def copy_to_clipboard(text: str) -> bool:
+    """Attempts to copy text to the system clipboard."""
+    try:
+        if platform.system() == "Darwin":
+            subprocess.run(["pbcopy"], input=text.encode(), check=True)
+        elif platform.system() == "Windows":
+            subprocess.run(["clip.exe"], input=text.encode(), check=True)
+        else:
+            # Try xclip then xsel
+            try:
+                subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode(), check=True)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                subprocess.run(["xsel", "--clipboard", "--input"], input=text.encode(), check=True)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+import subprocess
+
 def run() -> None:
     # Reduce ESC key delay in curses (default is often 1000ms)
     os.environ.setdefault('ESCDELAY', '25')
     
     parser = argparse.ArgumentParser(description="SLZ: Interactive Pipe Translator")
     parser.add_argument("-f", "--filter", action="store_true", help="Output filtered results instead of the command recipe")
+    parser.add_argument("--explain", action="store_true", help="Print a plain-English explanation of the generated command")
     parser.add_argument("--version", action="version", version="%(prog)s 0.2.0")
     args, unknown = parser.parse_known_args()
 
@@ -322,6 +442,8 @@ def run() -> None:
                     if cmd:
                         if sys.stdout.isatty():
                             print(f"\n# Suggested Pipe:\n| {cmd}")
+                            if args.explain:
+                                print(f"\n# What this does:\n{generate_explanation(final_input)}")
                         else:
                             print(cmd)
         except Exception as e:
