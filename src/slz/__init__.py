@@ -199,7 +199,7 @@ def filter_lines(lines: List[str], user_input: str) -> List[str]:
 
     return filtered
 
-def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], List[str]]:
+def main(stdscr: Any, initial_lines: List[str] = None, initial_filter: str = "") -> Tuple[Optional[str], List[str]]:
     # Setup curses with compatibility checks
     curses.curs_set(1)
     stdscr.timeout(100)
@@ -227,13 +227,22 @@ def main(stdscr: Any, initial_lines: List[str] = None) -> Tuple[Optional[str], L
             t = threading.Thread(target=read_stdin, args=(input_queue, MAX_LINES), daemon=True)
             t.start()
 
-    current_input = ""
+    current_input = initial_filter
     scroll_offset = 0
     selected_indices = set() # Changed to indices
     header_line = None
     
+    # Clear any pending input from the buffer (prevents garbage on startup)
+    try:
+        curses.flushinp()
+    except curses.error:
+        pass
+    
     while True:
-        while not input_queue.empty():
+        # Limit processing to 500 lines per frame to keep UI responsive
+        lines_processed = 0
+        while not input_queue.empty() and lines_processed < 500:
+            lines_processed += 1
             line = input_queue.get()
             if line is not None:
                 if header_line is None and not input_lines:
@@ -500,7 +509,8 @@ def run() -> None:
 
     if not sys.stdin.isatty():
         try:
-            final_input, final_lines = curses.wrapper(main)
+            initial_filter = " ".join(unknown)
+            final_input, final_lines = curses.wrapper(main, None, initial_filter)
             if final_input is not None:
                 if args.filter:
                     results = filter_lines(final_lines, final_input)
