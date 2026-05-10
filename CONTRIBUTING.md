@@ -1,14 +1,14 @@
-# Contributing to Pipe-Fu
+# Contributing to SLZ
 
-Thank you for your interest in contributing to Pipe-Fu! We welcome contributions from everyone.
+Thank you for your interest in contributing to SLZ! We welcome contributions from everyone.
 
 ## Getting Started
 
 1.  **Fork the repository** on GitHub.
 2.  **Clone your fork** locally:
     ```bash
-    git clone https://github.com/your-username/pipefu.git
-    cd pipefu
+    git clone https://github.com/your-username/slz.git
+    cd slz
     ```
 3.  **Install in editable mode**:
     ```bash
@@ -33,7 +33,7 @@ Please ensure all tests pass before submitting a pull request.
     ```
 2.  Commit your changes with descriptive messages.
 3.  Push your branch to your fork.
-4.  Open a Pull Request on the main `pipefu` repository.
+4.  Open a Pull Request on the main `slz` repository.
 
 ## Code Style
 
