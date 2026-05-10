@@ -12,8 +12,8 @@ Find a specific process ID without squinting at column headers.
 ### 2. Log Surgery (The "Error Finder")
 Extract just the timestamps or error codes from a dense log file.
 *   **Input:** `tail -n 1000 /var/log/syslog | slz`
-*   **Action:** Type `error 500 col:2`
-*   **Result:** Extracts the timestamps (column 2) for all lines containing both "error" and "500".
+*   **Action:** Type `error 500 col:1`
+*   **Result:** Extracts the timestamps (column 1) for all lines containing both "error" and "500".
 
 ### 3. Git Operations (The "Branch Jumper")
 Switch branches when you have dozens of features in progress.
