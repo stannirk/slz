@@ -228,17 +228,27 @@ def main(stdscr: Any) -> Optional[str]:
     return current_input
 
 def run() -> None:
+    # Reduce ESC key delay in curses (default is often 1000ms)
+    os.environ.setdefault('ESCDELAY', '25')
+    
     if not sys.stdin.isatty() or len(sys.argv) > 1:
         try:
             final_input = curses.wrapper(main)
             if final_input is not None:
                 cmd = generate_command(final_input)
                 if cmd:
-                    # Clear screen and print result
-                    print(f"\n# Suggested Pipe:\n| {cmd}")
+                    # Smart Output: If stdout is a TTY, be pretty. If not, be silent/raw.
+                    if sys.stdout.isatty():
+                        print(f"\n# Suggested Pipe:\n| {cmd}")
+                    else:
+                        # Print only the command for easy capture: CMD=$(ps aux | slz)
+                        print(cmd)
         except Exception as e:
             # Fallback for systems where curses might fail
-            print(f"\nError: Terminal does not support TUI mode. ({str(e)})", file=sys.stderr)
+            if sys.stdout.isatty():
+                print(f"\nError: Terminal does not support TUI mode. ({str(e)})", file=sys.stderr)
+            else:
+                sys.exit(1)
     else:
         print("Usage: <command> | slz")
         sys.exit(1)
