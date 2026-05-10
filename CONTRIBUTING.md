@@ -23,6 +23,15 @@ We use the standard `unittest` library. Run all tests with:
 python3 -m unittest discover tests
 ```
 
+### Environmental Robustness
+
+To verify that SLZ works across different Python versions and remains isolated from external library noise, we provide a verification script:
+
+```bash
+chmod +x tests/verify_environments.sh
+./tests/verify_environments.sh
+```
+
 Please ensure all tests pass before submitting a pull request.
 
 ## Submitting a Pull Request

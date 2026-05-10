@@ -23,6 +23,11 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         python -m pip install .
-    - name: Run tests
+    - name: Run tests (Standard)
       run: |
+        python -m unittest discover tests
+    - name: Run tests (Noisy Environment)
+      run: |
+        # Simulate a messy environment with many libraries installed
+        python -m pip install requests numpy pandas
         python -m unittest discover tests
