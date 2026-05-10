@@ -27,7 +27,7 @@ class TestChaosAndEdgeCases(unittest.TestCase):
         
         # Test if main() handles the curses.error during 'Terminal too small' draw
         try:
-            slz.main(stdscr, initial_lines=["prevent thread start"])
+            slz.main(stdscr, data_stream=None)
         except curses.error:
             self.fail("main() raised curses.error; it should handle it internally when terminal is too small.")
         except Exception as e:
@@ -70,7 +70,7 @@ class TestChaosAndEdgeCases(unittest.TestCase):
         # Since we can't easily run the __main__ block, we verify the structure.
         with open(slz.__file__, 'r') as f:
             content = f.read()
-            self.assertIn('except Exception as e:', content)
+            self.assertIn('except OSError:', content) # We added this for /dev/tty
             self.assertIn('Terminal does not support TUI mode', content)
 
 if __name__ == "__main__":

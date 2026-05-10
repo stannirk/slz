@@ -76,10 +76,19 @@ class TestStressAndHardening(unittest.TestCase):
         with patch("slz.curses.wrapper", side_effect=BrokenPipeError):
             with patch("sys.stdin.isatty", return_value=False):
                 with patch("sys.stdout.isatty", return_value=False):
-                    with self.assertRaises(SystemExit) as cm:
-                        slz.run()
-                    # BrokenPipeError should exit with non-zero
-                    self.assertEqual(cm.exception.code, 1)
+                    # Mock open('/dev/tty')
+                    mock_tty = MagicMock()
+                    mock_tty.fileno.return_value = 999
+                    
+                    with patch("builtins.open", side_effect=lambda *args, **kwargs: mock_tty if args[0] == '/dev/tty' else open(*args, **kwargs)):
+                        with patch("os.dup", return_value=1000):
+                            with patch("os.dup2"):
+                                with patch("os.fdopen", return_value=io.StringIO()):
+                                    with patch("os.close"):
+                                        with self.assertRaises(SystemExit) as cm:
+                                            slz.run()
+                                        # BrokenPipeError should exit with non-zero
+                                        self.assertEqual(cm.exception.code, 1)
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,11 +23,11 @@ import threading
 import queue
 from typing import List, Optional, Any, Tuple
 
-def read_stdin(q: queue.Queue, max_lines: int) -> None:
-    """Background thread function to read stdin into a queue."""
+def read_stdin(q: queue.Queue, max_lines: int, stream: Any) -> None:
+    """Background thread function to read a stream into a queue."""
     MAX_LINE_LENGTH = 4096 # Safety limit for single line length
     try:
-        for i, line in enumerate(sys.stdin):
+        for i, line in enumerate(stream):
             if i >= max_lines:
                 q.put(f"... [Truncated after {max_lines} lines] ...")
                 break
@@ -199,7 +199,7 @@ def filter_lines(lines: List[str], user_input: str) -> List[str]:
 
     return filtered
 
-def main(stdscr: Any, initial_lines: List[str] = None, initial_filter: str = "") -> Tuple[Optional[str], List[str]]:
+def main(stdscr: Any, data_stream: Any = None, initial_filter: str = "") -> Tuple[Optional[str], List[str]]:
     # Setup curses with compatibility checks
     curses.curs_set(1)
     stdscr.timeout(100)
@@ -215,17 +215,17 @@ def main(stdscr: Any, initial_lines: List[str] = None, initial_filter: str = "")
         curses.init_pair(5, curses.COLOR_WHITE, curses.COLOR_BLUE) # Selected line
     
     MAX_LINES = 10000
-    input_lines: List[str] = initial_lines if initial_lines is not None else []
+    input_lines: List[str] = []
     input_queue: queue.Queue = queue.Queue()
     is_streaming = False
 
-    if not input_lines:
-        if sys.stdin.isatty():
-            input_lines = ["No input detected. Pipe something into slz!", "Example: ps aux | slz"]
-        else:
-            is_streaming = True
-            t = threading.Thread(target=read_stdin, args=(input_queue, MAX_LINES), daemon=True)
-            t.start()
+    if data_stream is not None or not sys.stdin.isatty():
+        is_streaming = True
+        stream_to_read = data_stream if data_stream is not None else sys.stdin
+        t = threading.Thread(target=read_stdin, args=(input_queue, MAX_LINES, stream_to_read), daemon=True)
+        t.start()
+    elif sys.stdin.isatty():
+        input_lines = ["No input detected. Pipe something into slz!", "Example: ps aux | slz"]
 
     current_input = initial_filter
     scroll_offset = 0
@@ -503,14 +503,76 @@ def run() -> None:
     
     parser = argparse.ArgumentParser(description="SLZ: Interactive Pipe Translator")
     parser.add_argument("-f", "--filter", action="store_true", help="Output filtered results instead of the command recipe")
+    parser.add_argument("-n", "--non-interactive", action="store_true", help="Run without TUI (requires filter arguments)")
     parser.add_argument("--explain", action="store_true", help="Print a plain-English explanation of the generated command")
     parser.add_argument("--version", action="version", version="%(prog)s 0.2.0")
     args, unknown = parser.parse_known_args()
 
     if not sys.stdin.isatty():
+        initial_filter = " ".join(unknown)
+        
+        # Determine if we should run in non-interactive mode
+        is_non_interactive = args.non_interactive
+        
+        # Attempt to open /dev/tty for interactive mode
+        tty = None
+        if not is_non_interactive:
+            try:
+                tty = open('/dev/tty', 'r+')
+            except OSError:
+                if initial_filter:
+                    is_non_interactive = True
+                else:
+                    print("Error: Terminal required for interactive mode and no filter provided.", file=sys.stderr)
+                    sys.exit(1)
+
+        if is_non_interactive:
+            input_lines = [line.rstrip() for line in sys.stdin]
+            if not initial_filter:
+                # If no filter provided in non-interactive mode, just output everything
+                for line in input_lines:
+                    print(line)
+                return
+
+            if args.filter:
+                results = filter_lines(input_lines, initial_filter)
+                for line in results:
+                    print(line)
+            else:
+                cmd = generate_command(initial_filter)
+                if cmd:
+                    print(cmd)
+            return
+
+        # Interactive mode with piped input
+        # Save original pipes and redirect to TTY
+        orig_stdin_fd = os.dup(0)
+        orig_stdout_fd = os.dup(1)
+        
         try:
-            initial_filter = " ".join(unknown)
-            final_input, final_lines = curses.wrapper(main, None, initial_filter)
+            os.dup2(tty.fileno(), 0)
+            os.dup2(tty.fileno(), 1)
+            
+            # Create a new stream for the data from the original pipe
+            data_stream = os.fdopen(orig_stdin_fd, 'r')
+            
+            # Update Python's sys.stdin/stdout to the TTY for curses
+            sys.stdin = os.fdopen(0, 'r')
+            sys.stdout = os.fdopen(1, 'w')
+
+            try:
+                final_input, final_lines = curses.wrapper(main, data_stream, initial_filter)
+            except Exception as e:
+                # Restore original stdout to print the error
+                os.dup2(orig_stdout_fd, 1)
+                sys.stdout = os.fdopen(1, 'w')
+                print(f"\nError: Terminal does not support TUI mode. ({str(e)})", file=sys.stderr)
+                sys.exit(1)
+
+            # Restore original stdout to print the final result
+            os.dup2(orig_stdout_fd, 1)
+            sys.stdout = os.fdopen(1, 'w')
+            
             if final_input is not None:
                 if args.filter:
                     results = filter_lines(final_lines, final_input)
@@ -525,11 +587,17 @@ def run() -> None:
                                 print(f"\n# What this does:\n{generate_explanation(final_input)}")
                         else:
                             print(cmd)
-        except Exception as e:
-            if sys.stdout.isatty():
-                print(f"\nError: Terminal does not support TUI mode. ({str(e)})", file=sys.stderr)
-            else:
-                sys.exit(1)
+        finally:
+            if tty: tty.close()
+            # Restore original descriptors
+            os.dup2(orig_stdin_fd, 0)
+            os.dup2(orig_stdout_fd, 1)
+            os.close(orig_stdin_fd)
+            os.close(orig_stdout_fd)
+            
+            # Update Python objects back to restored descriptors
+            sys.stdin = os.fdopen(0, 'r')
+            sys.stdout = os.fdopen(1, 'w')
     else:
         if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
             parser.print_help()

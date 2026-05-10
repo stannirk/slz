@@ -53,8 +53,7 @@ class TestAudit(unittest.TestCase):
         long_line = "x" * 10000
         mock_stdin = io.StringIO(long_line + "\n")
         
-        with patch('sys.stdin', mock_stdin):
-            read_stdin(q, 10)
+        read_stdin(q, 10, mock_stdin)
             
         line = q.get()
         self.assertEqual(len(line), 4096 + len(" [Line Truncated]"))
@@ -70,8 +69,7 @@ class TestAudit(unittest.TestCase):
                 yield "line1"
                 raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
         
-        with patch('sys.stdin', ErrorStdin()):
-            read_stdin(q, 100)
+        read_stdin(q, 100, ErrorStdin())
             
         items = []
         while not q.empty():
