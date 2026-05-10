@@ -1,6 +1,6 @@
 # SLZ Translator 🥋
 
-[![CI](https://github.com/user/slz/actions/workflows/ci.yml/badge.svg)](https://github.com/user/slz/actions/workflows/ci.yml)
+[![CI](https://github.com/stannirk/slz/actions/workflows/ci.yml/badge.svg)](https://github.com/stannirk/slz/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 The interactive command-line tool that translates your visual filtering into powerful `awk` and `grep` commands.
